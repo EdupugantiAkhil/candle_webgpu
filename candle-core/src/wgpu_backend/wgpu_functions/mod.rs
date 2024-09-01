@@ -44,7 +44,7 @@ pub use cmp::queue_cmp_buffer_from_buffer;
 pub use conv2d::{queue_conv1d, queue_conv1d_transpose, queue_conv2d, queue_conv2d_transpose};
 pub use convert::{
     queue_convert_f32_to_u32, queue_convert_f32_to_u8, queue_convert_u32_to_f32,
-    queue_convert_u32_to_u8, queue_convert_u8_to_f32,
+    queue_convert_u32_to_u8, queue_convert_u8_to_f32, queue_convert_u32_to_i64,
 };
 pub use copy::{queue_copy, queue_copy2d, queue_copy3d,queue_copy3d_padded, queue_copy_strided};
 pub use gather::{queue_gather, queue_index_add_inplace, queue_scatter_add_inplace};
@@ -306,7 +306,7 @@ fn get_command_buffer(
                         let vd = buffers.get_dest();
                         match buffers.get_input(){
                             BindgroupInputBase::Bindgroup0 => {},
-                            BindgroupInputBase::Bindgroup1(v1, _) => {
+                            BindgroupInputBase::Bindgroup1(v1, _, _) => {
                                 if v1 == vd{
                                     panic!("B1: output and input are equal");
                                 }
@@ -445,7 +445,7 @@ fn prepare(dev: &WgpuDevice, queue_buffer: &mut QueueBuffer, cache : &mut ModelC
 
                             match input {
                                 BindgroupInputBase::Bindgroup0 => {},
-                                BindgroupInputBase::Bindgroup1(v1, _) => {
+                                BindgroupInputBase::Bindgroup1(v1, _, _) => {
                                     check_buffer(v1);
                                 },
                                 BindgroupInputBase::Bindgroup2(v1,v2, _) => {
@@ -548,7 +548,7 @@ fn set_buffers(dev: &WgpuDevice, command_buffer: &mut QueueBuffer, index : &mut 
                 {
                     if let Pipelines::Unary(dtype, candle_wgpu_kernels::unary::Functions::UnaryFromBufferContiguous) = &q.pipeline.0{
                         if q.pipeline.2.input1_inplaceable{
-                            if let BindgroupReferenceInput::Bindgroup1(v1_id, _) = bindgroup_reference.get_input()
+                            if let BindgroupReferenceInput::Bindgroup1(v1_id, _, _) = bindgroup_reference.get_input()
                             {
                                 if optmize_inplace(bindgroup_reference.get_dest(), v1_id)
                                 {
@@ -578,7 +578,7 @@ fn set_buffers(dev: &WgpuDevice, command_buffer: &mut QueueBuffer, index : &mut 
                                     q.pipeline.0 = Pipelines::Binary(dtype.clone(), candle_wgpu_kernels::binary::Functions::BinaryBufferInplace1ContiguousBoth);
                                     q.bindgroup =
                                         DispatchedBindgroup::BindgroupReference(
-                                            BindGroupReference::new(v1_id.clone(), BindgroupInputBase::Bindgroup1(v2_id.clone(), false)));
+                                            BindGroupReference::new(v1_id.clone(), BindgroupInputBase::Bindgroup1(v2_id.clone(), false,false)));
                                 }
                             }
                             else if q.pipeline.2.input2_inplaceable{
@@ -587,14 +587,14 @@ fn set_buffers(dev: &WgpuDevice, command_buffer: &mut QueueBuffer, index : &mut 
                                     q.pipeline.0 = Pipelines::Binary(dtype.clone(), candle_wgpu_kernels::binary::Functions::BinaryBufferInplace2ContiguousBoth);
                                     q.bindgroup =
                                         DispatchedBindgroup::BindgroupReference(
-                                            BindGroupReference::new(v2_id.clone(), BindgroupInputBase::Bindgroup1(v1_id.clone(), false)));
+                                            BindGroupReference::new(v2_id.clone(), BindgroupInputBase::Bindgroup1(v1_id.clone(), false,false)));
                                 }
                             }
                         }
                     }
                     else if let Pipelines::Copy(_, candle_wgpu_kernels::copy::Functions::Copy) = &q.pipeline.0{
                         if q.pipeline.2.input1_inplaceable{
-                            if let BindgroupReferenceInput::Bindgroup1(v1_id, _) = bindgroup_reference.get_input()
+                            if let BindgroupReferenceInput::Bindgroup1(v1_id, _,_) = bindgroup_reference.get_input()
                             {
                                 let v1 = cache.buffer_reference.get(v1_id);
                                 if let Some(v1) = v1{
@@ -659,7 +659,7 @@ fn set_buffers(dev: &WgpuDevice, command_buffer: &mut QueueBuffer, index : &mut 
                     chec_buffer(dest, cache, command_index);
                     match input {
                         BindgroupInputBase::Bindgroup0 => {},
-                        BindgroupInputBase::Bindgroup1(v1, _) => {chec_buffer(v1, cache, command_index);},
+                        BindgroupInputBase::Bindgroup1(v1, _, _) => {chec_buffer(v1, cache, command_index);},
                         BindgroupInputBase::Bindgroup2(v1, v2, _) =>  {chec_buffer(v1, cache, command_index);chec_buffer(v2, cache, command_index);},
                         BindgroupInputBase::Bindgroup3(v1, v2, v3) =>  {chec_buffer(v1, cache, command_index);chec_buffer(v2, cache, command_index);chec_buffer(v3, cache, command_index);},
                     }
@@ -675,10 +675,13 @@ fn set_buffers(dev: &WgpuDevice, command_buffer: &mut QueueBuffer, index : &mut 
                                 BindgroupReferenceInput::Bindgroup0 => {
                                     &dev.bindgroup_layouts.pipeline_layout0
                                 }
-                                BindgroupReferenceInput::Bindgroup1( _,false) => {
+                                BindgroupReferenceInput::Bindgroup1(_, _, true) => {
+                                    &dev.bindgroup_layouts.pipeline_layout1_8
+                                }
+                                BindgroupReferenceInput::Bindgroup1( _,false,_) => {
                                     &dev.bindgroup_layouts.pipeline_layout1
                                 }
-                                BindgroupReferenceInput::Bindgroup1( _, true) => {
+                                BindgroupReferenceInput::Bindgroup1( _, true, _) => {
                                     &dev.bindgroup_layouts.pipeline_layout1_16
                                 }
                                 BindgroupReferenceInput::Bindgroup2( _, _, false) => {
@@ -1032,8 +1035,9 @@ pub fn create_bindgroup(dev: &WgpuDevice, bindgroup: CachedBindgroupFull, cache 
 
     let bind_group_layout = match bindgroup.get_input() {
         CachedBindgroupInput::Bindgroup0 => &dev.bindgroup_layouts.bind_group_layout0,
-        CachedBindgroupInput::Bindgroup1(_, false) => &dev.bindgroup_layouts.bind_group_layout1,
-        CachedBindgroupInput::Bindgroup1(_, true) => &dev.bindgroup_layouts.bind_group_layout1_16,
+        CachedBindgroupInput::Bindgroup1(_, _, true) => &dev.bindgroup_layouts.bind_group_layout1_8,
+        CachedBindgroupInput::Bindgroup1(_, false, false) => &dev.bindgroup_layouts.bind_group_layout1,
+        CachedBindgroupInput::Bindgroup1(_, true, false) => &dev.bindgroup_layouts.bind_group_layout1_16,
         CachedBindgroupInput::Bindgroup2(_, _, false) => &dev.bindgroup_layouts.bind_group_layout2,
         CachedBindgroupInput::Bindgroup2(_, _, true) => &dev.bindgroup_layouts.bind_group_layout2_16,
         CachedBindgroupInput::Bindgroup3(_, _, _) => &dev.bindgroup_layouts.bind_group_layout3,
@@ -1058,7 +1062,7 @@ pub fn create_bindgroup(dev: &WgpuDevice, bindgroup: CachedBindgroupFull, cache 
                 entries: entries,
             })
         }
-        CachedBindgroupInput::Bindgroup1(buffer_input1, _) => {
+        CachedBindgroupInput::Bindgroup1(buffer_input1, _,_) => {
 
             if cache.buffers.get_buffer(buffer_input1).is_none(){
                 panic!("buffer_input_1 : {:?} could not be found(in {:?})", buffer_input1, bindgroup);
@@ -1145,8 +1149,22 @@ fn create_bind_group_input1(
     buffer_dest: BufferReferenceId,
     buffer_input1: BufferReferenceId,
 ) -> BindGroupReference {
-    BindGroupReference::new(buffer_dest, BindgroupInputBase::Bindgroup1(buffer_input1, false))
+    BindGroupReference::new(buffer_dest, BindgroupInputBase::Bindgroup1(buffer_input1, false,false))
 }
+
+fn create_bind_group_input1_8(
+    buffer_dest: BufferReferenceId,
+    buffer_input1: BufferReferenceId,
+) -> BindGroupReference {
+    BindGroupReference::new(buffer_dest, BindgroupInputBase::Bindgroup1(buffer_input1, true, true))
+}
+fn create_bind_group_input1_16(
+    buffer_dest: BufferReferenceId,
+    buffer_input1: BufferReferenceId,
+) -> BindGroupReference {
+    BindGroupReference::new(buffer_dest, BindgroupInputBase::Bindgroup1(buffer_input1, true, false))
+}
+
 
 fn create_bind_group_input2(
     buffer_dest: BufferReferenceId,

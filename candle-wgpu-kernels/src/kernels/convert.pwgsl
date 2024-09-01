@@ -91,6 +91,24 @@ fn convert_u32_to_u8(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 #endif
 
+#define convert_start_offset op_meta[0]
+#define convert_size op_meta[1]
+
+@compute
+@workgroup_size(64, 1, 1)
+fn convert_u32_to_i64(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let id_dest = global_id.x;
+    let id_source = global_id.x;
+
+    if (id_source >= convert_size) {
+        return;
+    }
+
+    let x: u32 = v_input1[convert_start_offset + id_source];
+
+    v_dest_i64[id_dest] = i64(x);
+}
+
 #ifdef f32
 
 @compute

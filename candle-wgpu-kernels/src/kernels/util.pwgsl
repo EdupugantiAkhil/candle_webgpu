@@ -10,6 +10,10 @@
 #define DTYPE u32 
 #endif
 
+#ifdef i64
+#define DTYPE i64
+#endif
+
 @group(0) @binding(0)
 var<storage, read_write> v_dest: array<DTYPE>;
 
@@ -22,6 +26,8 @@ var<storage, read_write> v_dest_u32: array<u32>;
 @group(0) @binding(0)
 var<storage, read_write> v_dest_f32: array<f32>;
 
+@group(0) @binding(0)
+var<storage, read_write> v_dest_i64: array<i64>;
 
 
 @group(0) @binding(1)
@@ -72,6 +78,11 @@ const MAXVALUE : u32 = 4294967295;
 
 const MINVALUE : i32 = -2147483648;
 const MAXVALUE : i32 =  2147483647;
+
+#elifdef i64
+
+const MINVALUE : i64 = -9223372036854775808;
+const MAXVALUE : i64 =  9223372036854775807;
 
 #elifdef u8
 
